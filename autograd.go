@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
-
+	"encoding/csv"
+    "os"
+    "strconv"
 )
+
 
 
 // -- Structs --
@@ -33,6 +36,7 @@ type MLP struct {
 	sizes []int
 	layers []*Layer
 }
+
 
 
 // -- Ops --
@@ -139,27 +143,27 @@ func buildTopo(v *Value, topo []*Value, visited map[*Value]bool) []*Value {
 }
 
 
+
 // -- Neuron --
 
 func NewNeuron(size int, nonlin bool) *Neuron {
-	w := make([]*Value, size)
-	for i := 0; i < size; i++ {
-		w[i] = New(2*rand.Float64() - 1)
-	}
-	b := New(2*rand.Float64() - 1)
+    w := make([]*Value, size)
+    for i := 0; i < size; i++ {
+        w[i] = New(rand.NormFloat64() * math.Sqrt(2.0 / float64(size)))
+    }
+    b := New(0)
 
-	n := &Neuron{
-		w: w,
-		b: b,
-		nonlin: nonlin,
-	}
-	return n
+    n := &Neuron{
+        w:      w,
+        b:      b,
+        nonlin: nonlin,
+    }
+    return n
 }
 
 func (n *Neuron) Forward(x []*Value) *Value {
 	out := n.b
 	for i := 0; i < len(x); i++ {
-		// fmt.Printf("%v\n",i)
 		out = Add(out, Mul(n.w[i], x[i]))
 	}
 	if n.nonlin {
@@ -172,6 +176,7 @@ func (n *Neuron) Forward(x []*Value) *Value {
 func (n *Neuron) Parameters() []*Value {
 	return append(n.w, n.b)
 }
+
 
 
 // -- Layer --
@@ -201,6 +206,7 @@ func (l *Layer) Parameters() []*Value {
 	}
 	return res
 }
+
 
 
 // -- MLP --
@@ -246,45 +252,92 @@ func MSE(x, y []*Value) *Value {
 	return loss
 }
 
+// LoadCSV loads CSV data into a slice of slices of *Value
+func LoadCSV(filename string) ([][]*Value, error) {
+    file, err := os.Open(filename)
+    if err != nil {
+        return nil, err
+    }
+    defer file.Close()
+
+    reader := csv.NewReader(file)
+    records, err := reader.ReadAll()
+    if err != nil {
+        return nil, err
+    }
+
+    data := make([][]*Value, len(records))
+    for i, record := range records {
+        row := make([]*Value, len(record))
+        for j, valueStr := range record {
+            value, err := strconv.ParseFloat(valueStr, 64)
+            if err != nil {
+                return nil, err
+            }
+            row[j] = New(value)
+        }
+        data[i] = row
+    }
+
+    return data, nil
+}
+
+// LoadSingleColumnCSV loads CSV data into a slice of *Value
+func LoadSingleColumnCSV(filename string) ([]*Value, error) {
+    file, err := os.Open(filename)
+    if err != nil {
+        return nil, err
+    }
+    defer file.Close()
+
+    reader := csv.NewReader(file)
+    records, err := reader.ReadAll()
+    if err != nil {
+        return nil, err
+    }
+
+    data := make([]*Value, len(records))
+    for i, record := range records {
+        value, err := strconv.ParseFloat(record[0], 64)
+        if err != nil {
+            return nil, err
+        }
+        data[i] = New(value)
+    }
+
+    return data, nil
+}
+
+
 
 func main() {
-	n := NewMLP(3, []int{4, 4, 1})
-
-    xs := [][]*Value{
-        {New(2), New(3), New(-1)},
-        {New(3), New(-1), New(0.5)},
-        {New(0.5), New(1), New(1)},
-        {New(1), New(1), New(-1)},
-        {New(1.5), New(2), New(-0.5)},
-        {New(2.5), New(0.5), New(-1.5)},
-        {New(-0.5), New(-1), New(2)},
-        {New(-1.5), New(1.5), New(0.5)},
-        {New(3), New(-0.5), New(1)},
-        {New(-2), New(2), New(0.5)},
-        {New(2), New(-2), New(-0.5)},
-        {New(1.2), New(2.1), New(0.3)},
-        {New(2.7), New(-1.3), New(1.2)},
-        {New(-1.2), New(0.5), New(1.7)},
-        {New(0.1), New(-1.5), New(2.3)},
-        {New(1.8), New(1.2), New(-0.7)},
-        {New(-1.3), New(-0.8), New(2.1)},
-        {New(0.4), New(1.5), New(-1.8)},
-        {New(2.2), New(1.8), New(0.6)},
-        {New(-0.9), New(-1.7), New(2.4)},
+	xs, err := LoadCSV("features.csv")
+    if err != nil {
+        fmt.Println("Error loading features data:", err)
+        return
     }
 
-    // Define the output dataset ys
-    ys := []*Value{
-        New(1), New(-1), New(-1), New(1),
-        New(1), New(-1), New(-1), New(1),
-        New(-1), New(1), New(-1), New(1),
-        New(1), New(-1), New(1), New(-1),
-        New(-1), New(1), New(-1),New(-1),
+    // Load output dataset ys from CSV
+    ys, err := LoadSingleColumnCSV("targets.csv")
+    if err != nil {
+        fmt.Println("Error loading targets data:", err)
+        return
     }
+
+	fmt.Printf("%v\n",len(xs))
+	fmt.Printf("%v\n",len(xs[0]))
+	fmt.Printf("%v\n",len(ys))
+
+	features := len(xs[0])
+
+	n := NewMLP(features, []int{4, 4, 1})
+
+	for k := 0; k < 50; k++ {
 
 		// forward pass
 		ypred := make([]*Value, len(ys))
 		for i, x := range xs {
+			
 			ypred[i] = n.Forward(x)[0]
 			// fmt.Printf("%v\n",ypred[i])
 		}
